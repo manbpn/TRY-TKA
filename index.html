@@ -190,7 +190,44 @@
 
   .hidden{display:none !important;}
   footer.note{font-size:12px; color:var(--ink-soft); text-align:center; margin-top:40px; line-height:1.7;}
-</style>
+
+  body.gate-mode{ background:var(--gate-bg); }
+  body.gate-mode .wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  body.gate-mode .brandbar{ display:none; }
+  body.gate-mode footer.note{ display:none; }
+
+  :root{ --gate-bg:#0E3B2C; --gate-card:#0A2E22; --gate-line:rgba(255,255,255,0.16); --gate-text:#E9F0EC; --gate-text-soft:#9FB8AC; }
+
+  .gate-box{
+    background:var(--gate-card); border:1px solid var(--gate-line); border-radius:14px;
+    padding:38px 34px 28px; max-width:380px; width:100%; margin:0 auto;
+    box-shadow:0 20px 50px rgba(0,0,0,0.35);
+  }
+  .gate-icon{ display:flex; justify-content:center; margin-bottom:18px; }
+  .gate-icon svg{ width:26px; height:26px; }
+  .gate-box h2{ font-size:19px; color:var(--gate-text); text-align:center; margin-bottom:6px; }
+  .gate-box p{ color:var(--gate-text-soft); font-size:13px; line-height:1.6; margin-bottom:20px; text-align:center; }
+  .gate-box label{ font-size:12px; color:var(--gate-text-soft); display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
+  .gate-box input{
+    font-family:inherit; font-size:14.5px; padding:11px 4px;
+    border:none; border-bottom:1px solid var(--gate-line); border-radius:0; width:100%;
+    background:transparent; color:var(--gate-text);
+  }
+  .gate-box input::placeholder{ color:#5F7A6E; }
+  .gate-box input:focus{ outline:none; border-bottom-color:#4FBF95; }
+  .gate-actions{display:flex; flex-direction:column; gap:10px; margin-top:8px;}
+  .gate-actions .btn{ width:100%; text-align:center; }
+  .btn-gate-primary{
+    background:#123626; color:var(--gate-text); border:1px solid var(--gate-line);
+    padding:12px 20px; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer;
+  }
+  .btn-gate-primary:hover{ background:#164531; }
+  .gate-msg{font-size:13px; padding:9px 12px; border-radius:8px; margin-bottom:14px;}
+  .gate-msg.error{background:rgba(181,72,45,0.18); color:#F0A98F;}
+  .gate-msg.info{background:rgba(79,191,149,0.15); color:#7EDCB6;}
+  .gate-footer{ text-align:center; font-size:11px; color:var(--gate-text-soft); margin-top:22px; }
+  .gate-link{ text-align:center; font-size:12.5px; color:var(--gate-text-soft); margin-top:16px; }
+  .gate-link a{ color:#7EDCB6; text-decoration:none; }</style>
 </head>
 <body>
 <div class="wrap">
@@ -205,6 +242,7 @@
     <button class="btn btn-ghost hidden" id="btnHome" onclick="goHome()">&larr; Kembali ke beranda</button>
   </div>
 
+  <div id="screen-gate" class="hidden"></div>
   <div id="screen-home"></div>
   <div id="screen-exam" class="hidden"></div>
   <div id="screen-result" class="hidden"></div>
@@ -222,6 +260,8 @@ const EXAM = JSON.parse(document.getElementById('exam-data').textContent);
 // Tempel URL Web App Google Apps Script di sini (lihat panduan yang menyertai file ini).
 // Kosongkan ('') jika belum ingin mengirim hasil ke Spreadsheet guru.
 const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyu9K7BIoyZDpm-LLIhE2jM_aCaYsx7voRFcLgrezEaaZCnhDmfWg3wv4hozDcV3VqHlA/exec';
+// Jika true, siswa wajib memasukkan kode akses yang disetujui guru sebelum bisa memilih paket ujian.
+const REQUIRE_ACCESS_CODE = true;
 
 let state = {
   paketKey: null,
@@ -240,8 +280,102 @@ function el(id){ return document.getElementById(id); }
 function show(id){ el(id).classList.remove('hidden'); }
 function hide(id){ el(id).classList.add('hidden'); }
 
+function hideAllScreens(){
+  hide('screen-gate'); hide('screen-home'); hide('screen-exam'); hide('screen-result');
+  document.body.classList.remove('gate-mode');
+}
+
+const HOME_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 10.5L12 3l9 7.5" stroke="#E9F0EC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" stroke="#E9F0EC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function renderGate(showDaftarForm){
+  hideAllScreens(); show('screen-gate'); hide('btnHome');
+  document.body.classList.add('gate-mode');
+  if(showDaftarForm){
+    el('screen-gate').innerHTML = `
+      <div class="gate-box">
+        <div class="gate-icon">${HOME_ICON_SVG}</div>
+        <h2>Ajukan Izin Mengikuti Ujian</h2>
+        <p>Isi data berikut. Setelah disetujui guru, kamu akan mendapat ID Pengguna dan Kata Sandi untuk masuk.</p>
+        <div id="gateMsg"></div>
+        <label>Nama lengkap<input id="daftarNama" type="text" placeholder="Nama kamu"></label>
+        <label>Kelas<input id="daftarKelas" type="text" placeholder="Contoh: XII IPA 1"></label>
+        <label>Kontak (No. WA/Email)<input id="daftarKontak" type="text" placeholder="Untuk dihubungi guru"></label>
+        <div class="gate-actions">
+          <button class="btn-gate-primary" onclick="submitDaftar()">Ajukan</button>
+          <button class="btn-gate-primary" style="background:transparent;" onclick="renderGate(false)">&larr; Kembali ke halaman masuk</button>
+        </div>
+        <div class="gate-footer">&copy; 2026-2027 MANBA</div>
+      </div>`;
+  } else {
+    el('screen-gate').innerHTML = `
+      <div class="gate-box">
+        <div class="gate-icon">${HOME_ICON_SVG}</div>
+        <h2>Ruang Ujian</h2>
+        <p>Masuk menggunakan ID Pengguna dan Kata Sandi yang diberikan guru.</p>
+        <div id="gateMsg"></div>
+        <label>ID Pengguna<input id="idPenggunaInput" type="text" placeholder="Nama / ID Pengguna" autocomplete="username"></label>
+        <label>Kata Sandi<input id="sandiInput" type="password" placeholder="Kata sandi" autocomplete="current-password"></label>
+        <div class="gate-actions">
+          <button class="btn-gate-primary" onclick="verifyAccessCode()">Masuk</button>
+        </div>
+        <div class="gate-link">Belum punya akun? <a href="#" onclick="renderGate(true); return false;">Ajukan izin mengikuti ujian</a></div>
+        <div class="gate-footer">&copy; 2026-2027 MANBA</div>
+      </div>`;
+  }
+}
+
+function setGateMsg(msg, type){
+  const box = el('gateMsg');
+  if(!box) return;
+  if(!msg){ box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="gate-msg ${type}">${escapeHtml(msg)}</div>`;
+}
+
+function verifyAccessCode(){
+  const idPengguna = el('idPenggunaInput').value.trim();
+  const sandi = el('sandiInput').value.trim();
+  if(!idPengguna || !sandi){ setGateMsg('ID Pengguna dan Kata Sandi wajib diisi.', 'error'); return; }
+  setGateMsg('Memeriksa akun...', 'info');
+  const cbName = 'verifyCb_' + Date.now();
+  const cleanup = () => { delete window[cbName]; if(scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl); };
+  window[cbName] = function(data){
+    cleanup();
+    if(data && data.valid){
+      state.namaSiswa = data.nama;
+      state.kelas = data.kelas;
+      document.body.classList.remove('gate-mode');
+      renderHome();
+    } else {
+      setGateMsg('ID Pengguna / Kata Sandi salah, atau belum disetujui guru.', 'error');
+    }
+  };
+  const scriptEl = document.createElement('script');
+  scriptEl.src = SHEET_WEBHOOK_URL + '?action=verify&id=' + encodeURIComponent(idPengguna) + '&kode=' + encodeURIComponent(sandi) + '&callback=' + cbName;
+  scriptEl.onerror = function(){ cleanup(); setGateMsg('Gagal menghubungi server. Periksa koneksi internet lalu coba lagi.', 'error'); };
+  document.body.appendChild(scriptEl);
+}
+
+function submitDaftar(){
+  const nama = el('daftarNama').value.trim();
+  const kelas = el('daftarKelas').value.trim();
+  const kontak = el('daftarKontak').value.trim();
+  if(!nama || !kelas){ setGateMsg('Nama dan kelas wajib diisi.', 'error'); return; }
+  const body = new URLSearchParams({action:'daftar', nama, kelas, kontak});
+  try{ fetch(SHEET_WEBHOOK_URL, {method:'POST', mode:'no-cors', body}); }catch(e){}
+  el('screen-gate').innerHTML = `
+    <div class="gate-box">
+      <div class="gate-icon">${HOME_ICON_SVG}</div>
+      <h2>Permintaan Terkirim</h2>
+      <p>Terima kasih, ${escapeHtml(nama)}. Permintaan untuk mengikuti ujian sudah tercatat. Silakan tunggu ID Pengguna dan Kata Sandi dari guru (biasanya dibagikan lewat kelas/grup WA).</p>
+      <div class="gate-actions">
+        <button class="btn-gate-primary" onclick="renderGate(false)">Sudah punya akun? Masuk di sini</button>
+      </div>
+      <div class="gate-footer">&copy; 2026-2027 MANBA</div>
+    </div>`;
+}
+
 function renderHome(){
-  hide('screen-exam'); hide('screen-result'); show('screen-home');
+  hideAllScreens(); show('screen-home');
   hide('btnHome');
   const keys = Object.keys(EXAM);
   let cards = keys.map(k => {
@@ -306,7 +440,7 @@ function startExam(key){
     paketKey:key, paket:EXAM[key], namaSiswa:nama, kelas:kelas, qIndex:0, answers:{},
     timeLeft: durasi*60, timerId:null, finished:false, result:null
   };
-  hide('screen-home'); hide('screen-result'); show('screen-exam');
+  hideAllScreens(); show('screen-exam');
   show('btnHome');
   renderExam();
   state.timerId = setInterval(tick, 1000);
@@ -457,7 +591,7 @@ function sendToSheet(data){
 
 function renderResult(auto, filter){
   filter = filter || 'all';
-  hide('screen-exam'); show('screen-result');
+  hideAllScreens(); show('screen-result');
   const p = state.paket;
   const {correct, wrong, unanswered, total, score, details} = state.result;
 
@@ -514,7 +648,11 @@ function goHome(){
   renderHome();
 }
 
-renderHome();
+if (REQUIRE_ACCESS_CODE && SHEET_WEBHOOK_URL) {
+  renderGate(false);
+} else {
+  renderHome();
+}
 </script>
 </body>
 </html>
