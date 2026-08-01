@@ -227,7 +227,26 @@
   .gate-msg.info{background:rgba(79,191,149,0.15); color:#7EDCB6;}
   .gate-footer{ text-align:center; font-size:11px; color:var(--gate-text-soft); margin-top:22px; }
   .gate-link{ text-align:center; font-size:12.5px; color:var(--gate-text-soft); margin-top:16px; }
-  .gate-link a{ color:#7EDCB6; text-decoration:none; }</style>
+  .gate-link a{ color:#7EDCB6; text-decoration:none; }
+
+  /* ---------- ADMIN ---------- */
+  .admin-toolbar{display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:16px; flex-wrap:wrap;}
+  .admin-toolbar h2{font-size:24px; margin-bottom:6px;}
+  .admin-stats{font-size:13px; color:var(--ink-soft);}
+  .admin-toolbar-actions{display:flex; gap:8px;}
+  .admin-actions-top{margin-bottom:14px;}
+  .admin-table-wrap{background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); overflow-x:auto;}
+  table.admin-table{border-collapse:collapse; width:100%; font-size:13.5px; white-space:nowrap;}
+  table.admin-table th, table.admin-table td{padding:10px 12px; text-align:left; border-bottom:1px solid var(--line);}
+  table.admin-table th{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); background:var(--bg);}
+  table.admin-table tr:last-child td{border-bottom:none;}
+  table.admin-table code{font-family:'IBM Plex Mono', monospace; background:var(--accent-soft); padding:2px 6px; border-radius:5px; font-size:12.5px;}
+  .admin-actions-cell{display:flex; gap:6px; flex-wrap:wrap;}
+  .btn-sm{padding:6px 11px; font-size:12.5px;}
+  .status-badge{font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:999px; white-space:nowrap;}
+  .status-badge.wait{background:var(--warn-soft); color:var(--warn);}
+  .status-badge.ok{background:var(--accent-soft); color:var(--accent-ink);}
+  .status-badge.no{background:#EAEAEA; color:#6B6B6B;}</style>
 </head>
 <body>
 <div class="wrap">
@@ -246,8 +265,9 @@
   <div id="screen-home"></div>
   <div id="screen-exam" class="hidden"></div>
   <div id="screen-result" class="hidden"></div>
+  <div id="screen-admin" class="hidden"></div>
 
-  <footer class="note">Alat bantu tryout sederhana &middot; data jawaban tersimpan di perangkat ini selama sesi berjalan.</footer>
+  <footer class="note">Alat bantu tryout sederhana &middot; data jawaban tersimpan di perangkat ini selama sesi berjalan.<br><a href="#" onclick="renderAdminLogin(); return false;" style="color:var(--ink-soft);">Masuk sebagai Admin</a></footer>
 </div>
 
 <div id="modalRoot"></div>
@@ -281,7 +301,7 @@ function show(id){ el(id).classList.remove('hidden'); }
 function hide(id){ el(id).classList.add('hidden'); }
 
 function hideAllScreens(){
-  hide('screen-gate'); hide('screen-home'); hide('screen-exam'); hide('screen-result');
+  hide('screen-gate'); hide('screen-home'); hide('screen-exam'); hide('screen-result'); hide('screen-admin');
   document.body.classList.remove('gate-mode');
 }
 
@@ -372,6 +392,190 @@ function submitDaftar(){
       </div>
       <div class="gate-footer">&copy; 2026-2027 MANBA</div>
     </div>`;
+}
+
+// ================== ADMIN ==================
+function adminCall(action, params, onResult){
+  if(!SHEET_WEBHOOK_URL){ onResult({ok:false, error:'Webhook belum dikonfigurasi.'}); return; }
+  const cbName = 'adminCb_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+  const cleanup = () => { delete window[cbName]; if(scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl); };
+  window[cbName] = function(data){ cleanup(); onResult(data); };
+  let url = SHEET_WEBHOOK_URL + '?action=' + encodeURIComponent(action) +
+            '&callback=' + cbName + '&password=' + encodeURIComponent(state.adminPassword || '');
+  Object.keys(params || {}).forEach(k => { url += '&' + k + '=' + encodeURIComponent(params[k]); });
+  const scriptEl = document.createElement('script');
+  scriptEl.src = url;
+  scriptEl.onerror = function(){ cleanup(); onResult({ok:false, error:'Gagal menghubungi server.'}); };
+  document.body.appendChild(scriptEl);
+}
+
+function renderAdminLogin(){
+  hideAllScreens(); show('screen-admin'); hide('btnHome');
+  document.body.classList.add('gate-mode');
+  el('screen-admin').innerHTML = `
+    <div class="gate-box">
+      <div class="gate-icon">${HOME_ICON_SVG}</div>
+      <h2>Panel Admin</h2>
+      <p>Khusus guru/panitia. Masukkan password admin untuk mengelola pendaftaran siswa dan hasil ujian.</p>
+      <div id="adminMsg"></div>
+      <label>Password Admin<input id="adminPwInput" type="password" placeholder="Password admin" onkeydown="if(event.key==='Enter') adminLogin();"></label>
+      <div class="gate-actions">
+        <button class="btn-gate-primary" onclick="adminLogin()">Masuk</button>
+        <button class="btn-gate-primary" style="background:transparent;" onclick="goHome()">&larr; Kembali ke beranda</button>
+      </div>
+      <div class="gate-footer">&copy; 2026-2027 MANBA</div>
+    </div>`;
+  el('adminPwInput').focus();
+}
+
+function setAdminMsg(msg, type){
+  const box = el('adminMsg');
+  if(!box) return;
+  box.innerHTML = msg ? `<div class="gate-msg ${type}">${escapeHtml(msg)}</div>` : '';
+}
+
+function adminLogin(){
+  const pw = el('adminPwInput').value.trim();
+  if(!pw){ setAdminMsg('Password wajib diisi.', 'error'); return; }
+  setAdminMsg('Memeriksa...', 'info');
+  state.adminPassword = pw;
+  adminCall('admin_data', {}, function(data){
+    if(data && data.ok){
+      state.adminData = data;
+      document.body.classList.remove('gate-mode');
+      renderAdminDashboard('pendaftaran');
+    } else {
+      state.adminPassword = '';
+      setAdminMsg(data && data.error === 'unauthorized' ? 'Password salah.' : 'Gagal memuat data. Periksa koneksi internet.', 'error');
+    }
+  });
+}
+
+function adminLogout(){
+  state.adminPassword = '';
+  state.adminData = null;
+  goHome();
+}
+
+function loadAdminData(tab){
+  adminCall('admin_data', {}, function(data){
+    if(data && data.ok){ state.adminData = data; renderAdminDashboard(tab); }
+    else { alert('Gagal memuat data: ' + ((data && data.error) || 'unknown')); }
+  });
+}
+
+function renderAdminDashboard(tab){
+  tab = tab || 'pendaftaran';
+  hideAllScreens(); show('screen-admin'); show('btnHome');
+  const d = state.adminData || {pendaftaran:[], hasil:[]};
+  const menunggu = d.pendaftaran.filter(p => p.status === 'Menunggu').length;
+  const disetujui = d.pendaftaran.filter(p => p.status === 'Disetujui').length;
+  const avgSkor = d.hasil.length ? Math.round(d.hasil.reduce((a,h) => a + Number(h.skor || 0), 0) / d.hasil.length) : 0;
+
+  el('screen-admin').innerHTML = `
+    <div class="admin-toolbar">
+      <div>
+        <h2>Panel Admin</h2>
+        <div class="admin-stats">${menunggu} menunggu &middot; ${disetujui} disetujui &middot; ${d.hasil.length} hasil ujian &middot; rata-rata skor ${avgSkor}</div>
+      </div>
+      <div class="admin-toolbar-actions">
+        <button class="btn btn-ghost" onclick="loadAdminData('${tab}')">&#8635; Muat ulang</button>
+        <button class="btn btn-ghost" onclick="adminLogout()">Keluar</button>
+      </div>
+    </div>
+    <div class="filter-tabs">
+      <div class="filter-tab ${tab==='pendaftaran'?'active':''}" onclick="renderAdminDashboard('pendaftaran')">Pendaftaran (${d.pendaftaran.length})</div>
+      <div class="filter-tab ${tab==='hasil'?'active':''}" onclick="renderAdminDashboard('hasil')">Hasil Ujian (${d.hasil.length})</div>
+    </div>
+    ${tab === 'pendaftaran' ? renderPendaftaranTable(d.pendaftaran) : renderHasilTable(d.hasil)}
+  `;
+}
+
+function renderPendaftaranTable(list){
+  if(!list.length) return `<div class="review-item">Belum ada pendaftar.</div>`;
+  const rows = list.slice().reverse().map(p => `
+    <tr>
+      <td>${escapeHtml(p.waktu)}</td>
+      <td>${escapeHtml(p.nama)}</td>
+      <td>${escapeHtml(p.kelas)}</td>
+      <td>${escapeHtml(p.kontak)}</td>
+      <td><span class="status-badge ${p.status==='Disetujui'?'ok':(p.status==='Ditolak'?'no':'wait')}">${escapeHtml(p.status)}</span></td>
+      <td>${p.kode ? `<code>${escapeHtml(p.kode)}</code>` : '-'}</td>
+      <td class="admin-actions-cell">
+        ${p.status!=='Disetujui' ? `<button class="btn btn-primary btn-sm" onclick="adminApprove(${p.row})">Setujui</button>` : ''}
+        ${p.status!=='Ditolak' ? `<button class="btn btn-ghost btn-sm" onclick="adminReject(${p.row})">Tolak</button>` : ''}
+        ${p.status==='Disetujui' ? `<button class="btn btn-ghost btn-sm" onclick="adminResetKode(${p.row})">Reset Kode</button>` : ''}
+        <button class="btn btn-warn btn-sm" onclick="adminDeletePendaftaran(${p.row})">Hapus</button>
+      </td>
+    </tr>`).join('');
+  return `
+    <div class="admin-actions-top"><button class="btn btn-primary" onclick="adminApproveAll()">Setujui Semua yang Menunggu</button></div>
+    <div class="admin-table-wrap"><table class="admin-table">
+      <thead><tr><th>Waktu</th><th>Nama</th><th>Kelas</th><th>Kontak</th><th>Status</th><th>Kode</th><th>Aksi</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderHasilTable(list){
+  if(!list.length) return `<div class="review-item">Belum ada hasil ujian.</div>`;
+  const rows = list.slice().reverse().map(h => `
+    <tr>
+      <td>${escapeHtml(h.waktu)}</td>
+      <td>${escapeHtml(h.nama)}</td>
+      <td>${escapeHtml(h.kelas)}</td>
+      <td>${escapeHtml(h.paket)}</td>
+      <td>${escapeHtml(h.mapel)}</td>
+      <td><b>${h.skor}</b></td>
+      <td>${h.benar}/${h.salah}/${h.kosong} dari ${h.total}</td>
+      <td class="admin-actions-cell"><button class="btn btn-warn btn-sm" onclick="adminDeleteHasil(${h.row})">Hapus</button></td>
+    </tr>`).join('');
+  return `
+    <div class="admin-table-wrap"><table class="admin-table">
+      <thead><tr><th>Waktu</th><th>Nama</th><th>Kelas</th><th>Paket</th><th>Mapel</th><th>Skor</th><th>Benar/Salah/Kosong</th><th>Aksi</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function adminApprove(row){
+  adminCall('admin_approve', {row: row}, function(data){
+    if(data && data.ok) loadAdminData('pendaftaran');
+    else alert('Gagal menyetujui: ' + ((data && data.error) || 'unknown'));
+  });
+}
+function adminApproveAll(){
+  if(!confirm('Setujui semua pendaftar yang berstatus Menunggu?')) return;
+  adminCall('admin_approve_all', {}, function(data){
+    if(data && data.ok){ alert(data.count + ' pendaftar disetujui.'); loadAdminData('pendaftaran'); }
+    else alert('Gagal: ' + ((data && data.error) || 'unknown'));
+  });
+}
+function adminReject(row){
+  if(!confirm('Tolak pendaftar ini?')) return;
+  adminCall('admin_reject', {row: row}, function(data){
+    if(data && data.ok) loadAdminData('pendaftaran');
+    else alert('Gagal: ' + ((data && data.error) || 'unknown'));
+  });
+}
+function adminResetKode(row){
+  if(!confirm('Buat ulang kode akses untuk pendaftar ini? Kode lama tidak berlaku lagi.')) return;
+  adminCall('admin_reset_kode', {row: row}, function(data){
+    if(data && data.ok){ alert('Kode akses baru untuk ' + data.nama + ': ' + data.kode); loadAdminData('pendaftaran'); }
+    else alert('Gagal: ' + ((data && data.error) || 'unknown'));
+  });
+}
+function adminDeletePendaftaran(row){
+  if(!confirm('Hapus data pendaftar ini secara permanen?')) return;
+  adminCall('admin_delete_pendaftaran', {row: row}, function(data){
+    if(data && data.ok) loadAdminData('pendaftaran');
+    else alert('Gagal: ' + ((data && data.error) || 'unknown'));
+  });
+}
+function adminDeleteHasil(row){
+  if(!confirm('Hapus data hasil ujian ini secara permanen?')) return;
+  adminCall('admin_delete_hasil', {row: row}, function(data){
+    if(data && data.ok) loadAdminData('hasil');
+    else alert('Gagal: ' + ((data && data.error) || 'unknown'));
+  });
 }
 
 function renderHome(){
