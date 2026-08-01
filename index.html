@@ -339,6 +339,7 @@ function renderGate(showDaftarForm){
           <button class="btn-gate-primary" onclick="verifyAccessCode()">Masuk</button>
         </div>
         <div class="gate-link">Belum punya akun? <a href="#" onclick="renderGate(true); return false;">Ajukan izin mengikuti ujian</a></div>
+        <div class="gate-link">Guru/Panitia? <a href="#" onclick="renderAdminLogin(); return false;">Masuk sebagai Admin</a></div>
         <div class="gate-footer">&copy; 2026-2027 MANBA</div>
       </div>`;
   }
@@ -421,11 +422,22 @@ function renderAdminLogin(){
       <label>Password Admin<input id="adminPwInput" type="password" placeholder="Password admin" onkeydown="if(event.key==='Enter') adminLogin();"></label>
       <div class="gate-actions">
         <button class="btn-gate-primary" onclick="adminLogin()">Masuk</button>
-        <button class="btn-gate-primary" style="background:transparent;" onclick="goHome()">&larr; Kembali ke beranda</button>
+        <button class="btn-gate-primary" style="background:transparent;" onclick="adminBackToStart()">&larr; Kembali</button>
       </div>
       <div class="gate-footer">&copy; 2026-2027 MANBA</div>
     </div>`;
   el('adminPwInput').focus();
+}
+
+// Kembali dari layar admin: ke gate login jika siswa belum login (gate wajib),
+// atau ke beranda jika gate tidak diwajibkan / siswa sudah login sebelumnya.
+function adminBackToStart(){
+  if(REQUIRE_ACCESS_CODE && SHEET_WEBHOOK_URL && !state.namaSiswa){
+    hideAllScreens();
+    renderGate(false);
+  } else {
+    goHome();
+  }
 }
 
 function setAdminMsg(msg, type){
@@ -454,7 +466,7 @@ function adminLogin(){
 function adminLogout(){
   state.adminPassword = '';
   state.adminData = null;
-  goHome();
+  adminBackToStart();
 }
 
 function loadAdminData(tab){
